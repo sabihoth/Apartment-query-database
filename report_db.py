@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import sqlite3
+from datetime import datetime
 from html import escape
 from pathlib import Path
 
@@ -143,6 +144,30 @@ def get_daily_average_rows(conn):
          AND u.timestamp = l.latest_timestamp
         GROUP BY u.query_date
         ORDER BY u.query_date
+        """
+    ).fetchall()
+
+
+def get_daily_floorplan_average_rows(conn):
+    shown_price_sql = f"COALESCE({latest_override_exact_price_sql('u')}, u.price, u.price_min)"
+    return conn.execute(
+        f"""
+        {LATEST_UNIT_DAY_CTE}
+        SELECT u.query_date,
+               u.floorplan,
+               COUNT(*) AS unit_count,
+               ROUND(AVG({shown_price_sql}), 2) AS avg_shown_price,
+               ROUND(MIN({shown_price_sql}), 2) AS min_shown_price,
+               ROUND(MAX({shown_price_sql}), 2) AS max_shown_price
+        FROM units u
+        JOIN latest_unit_day l
+          ON u.query_date = l.query_date
+         AND u.floorplan = l.floorplan
+         AND u.unit = l.unit
+         AND u.timestamp = l.latest_timestamp
+        WHERE {shown_price_sql} IS NOT NULL
+        GROUP BY u.query_date, u.floorplan
+        ORDER BY u.query_date, u.floorplan
         """
     ).fetchall()
 
@@ -369,6 +394,17 @@ def write_svg_chart(output_path, title, x_values, series, y_axis_label):
     return True
 
 
+def format_dashboard_timestamp(timestamp_text):
+    try:
+        timestamp = datetime.fromisoformat(timestamp_text)
+    except (TypeError, ValueError):
+        return str(timestamp_text)
+
+    day_text = timestamp.strftime("%A, %B %d, %Y")
+    time_text = timestamp.strftime("%I:%M %p").lstrip("0")
+    return f"{day_text} at {time_text}"
+
+
 def generate_charts(conn, unit=None, floorplan=None):
     ensure_output_dirs()
 
@@ -427,9 +463,10 @@ def build_summary_cards(latest_timestamp, latest_snapshot_rows, avg_rows, availa
 
     latest_avg = avg_rows[-1] if avg_rows else ("n/a", 0, 0, 0, 0, 0, 0)
     latest_availability = availability_rows[-1] if availability_rows else ("n/a", 0, 0, 0)
+    latest_timestamp_display = format_dashboard_timestamp(latest_timestamp)
 
     cards = [
-        ("Latest Scrape", latest_timestamp),
+        ("Latest Scrape", latest_timestamp_display),
         ("Query Day", latest_snapshot_rows[0][0]),
         ("Units In Latest Snapshot", str(len(latest_snapshot_rows))),
         ("Exact Prices Available", str(latest_avg[2])),
@@ -473,6 +510,10 @@ def build_latest_snapshot_table(rows):
 def build_latest_snapshot_data(rows):
     snapshot_rows = []
     for row in rows:
+        displayed_low_price = None
+        if row[9] is not None:
+            displayed_low_price = f"${row[9]:,.2f}"
+
         displayed_bounds = None
         if row[9] is not None and row[10] is not None:
             displayed_bounds = f"${row[9]:,.2f} to ${row[10]:,.2f}"
@@ -488,6 +529,9 @@ def build_latest_snapshot_data(rows):
                 "sqft": row[5],
                 "exact_price": exact_price,
                 "effective_price": row[8],
+                "display_price": exact_price or displayed_low_price,
+                "sort_price": row[8] if row[8] is not None else row[9],
+                "displayed_low_price": displayed_low_price,
                 "displayed_bounds": displayed_bounds,
                 "displayed_rent": row[11],
                 "availability": row[12],
@@ -498,6 +542,49 @@ def build_latest_snapshot_data(rows):
     return json.dumps(snapshot_rows)
 
 
+def build_floorplan_history_data(rows):
+    if not rows:
+        return json.dumps({"dates": [], "series": []})
+
+    dates = []
+    for query_date, _, _, _, _, _ in rows:
+        if query_date not in dates:
+            dates.append(query_date)
+
+    floorplans = []
+    floorplan_series = {}
+    for query_date, floorplan, unit_count, avg_shown_price, min_shown_price, max_shown_price in rows:
+        if floorplan not in floorplans:
+            floorplans.append(floorplan)
+            floorplan_series[floorplan] = {
+                "floorplan": floorplan,
+                "values": {date: None for date in dates},
+                "unit_counts": {date: 0 for date in dates},
+                "min_values": {date: None for date in dates},
+                "max_values": {date: None for date in dates},
+            }
+
+        floorplan_series[floorplan]["values"][query_date] = avg_shown_price
+        floorplan_series[floorplan]["unit_counts"][query_date] = unit_count
+        floorplan_series[floorplan]["min_values"][query_date] = min_shown_price
+        floorplan_series[floorplan]["max_values"][query_date] = max_shown_price
+
+    series = []
+    for floorplan in floorplans:
+        item = floorplan_series[floorplan]
+        series.append(
+            {
+                "floorplan": floorplan,
+                "values": [item["values"][date] for date in dates],
+                "unit_counts": [item["unit_counts"][date] for date in dates],
+                "min_values": [item["min_values"][date] for date in dates],
+                "max_values": [item["max_values"][date] for date in dates],
+            }
+        )
+
+    return json.dumps({"dates": dates, "series": series})
+
+
 def generate_dashboard(conn):
     ensure_output_dirs()
     generate_charts(conn)
@@ -505,6 +592,7 @@ def generate_dashboard(conn):
     latest_timestamp, latest_rows = get_latest_snapshot(conn)
     avg_rows = get_daily_average_rows(conn)
     availability_rows = get_daily_availability_rows(conn)
+    floorplan_avg_rows = get_daily_floorplan_average_rows(conn)
 
     if not latest_timestamp:
         print("Database is empty.")
@@ -512,6 +600,8 @@ def generate_dashboard(conn):
 
     dashboard_path = OUTPUT_DIR / "dashboard.html"
     snapshot_json = build_latest_snapshot_data(latest_rows)
+    floorplan_history_json = build_floorplan_history_data(floorplan_avg_rows)
+    latest_timestamp_display = format_dashboard_timestamp(latest_timestamp)
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -544,9 +634,14 @@ def generate_dashboard(conn):
         .chart-grid {{ display: grid; grid-template-columns: 1fr; gap: 20px; }}
         .chart-panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px; box-shadow: 0 10px 30px rgba(32, 26, 20, 0.05); }}
         .chart-panel img {{ width: 100%; height: auto; display: block; border-radius: 12px; }}
+        .chart-stage {{ width: 100%; min-height: 320px; border-radius: 12px; overflow: hidden; background: #fbfaf7; }}
         .links {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }}
         .links a {{ color: white; background: var(--accent); text-decoration: none; padding: 10px 14px; border-radius: 999px; font-size: 14px; }}
         .links a.alt {{ background: var(--accent-2); }}
+        .floorplan-picker {{ display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }}
+        .floorplan-button {{ border: 1px solid var(--line); border-radius: 999px; background: #f8f2ea; color: var(--ink); padding: 9px 14px; font: inherit; cursor: pointer; transition: background 160ms ease, color 160ms ease, border-color 160ms ease; }}
+        .floorplan-button.active {{ background: var(--accent-2); color: #fff; border-color: var(--accent-2); }}
+        .chart-caption {{ margin: 12px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }}
         .section-head {{ display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }}
         .section-sub {{ margin: 0; color: var(--muted); font-size: 16px; line-height: 1.5; max-width: 760px; }}
         .results-meta {{ color: var(--muted); font-size: 14px; }}
@@ -591,7 +686,7 @@ def generate_dashboard(conn):
         <header class="hero">
             <div class="eyebrow">Local Rent Tracker</div>
             <h1>Alta Art Tower rent dashboard</h1>
-            <p class="sub">This page is generated from your local SQLite database. It shows the latest snapshot, daily average rent trend, and availability trend using the same data your tracker saves every morning.</p>
+            <p class="sub">This page is generated from your local SQLite database. Latest scrape: {escape(latest_timestamp_display)}. It shows the latest snapshot, daily average rent trend, and availability trend using the same data your tracker saves every morning.</p>
         </header>
 
         <section class="cards">
@@ -612,6 +707,20 @@ def generate_dashboard(conn):
                 <a href="raw_units_history.csv">Download raw CSV</a>
                 <a class="alt" href="charts/average_prices_over_time.svg">Open average price chart</a>
                 <a class="alt" href="charts/availability_over_time.svg">Open availability chart</a>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <h2>Floorplan Price Over Time</h2>
+                    <p class="section-sub">Compare selected floorplans using each day&apos;s average shown price. If exact prices are missing, the chart falls back to the low end of the displayed range so B1 and B2 still track over time.</p>
+                </div>
+            </div>
+            <div class="chart-panel">
+                <div class="floorplan-picker" id="floorplanPicker"></div>
+                <div class="chart-stage" id="floorplanChart"></div>
+                <p class="chart-caption" id="floorplanChartCaption"></p>
             </div>
         </section>
 
@@ -665,8 +774,8 @@ def generate_dashboard(conn):
                             <th>Beds</th>
                             <th>Baths</th>
                             <th>Sqft</th>
-                            <th>Exact Price</th>
-                            <th>Displayed Bounds</th>
+                            <th>Shown Price</th>
+                            <th>Stored Range</th>
                             <th>Displayed Rent</th>
                             <th>Availability</th>
                             <th>Price Source</th>
@@ -681,6 +790,7 @@ def generate_dashboard(conn):
     </div>
     <script>
         const snapshotRows = {snapshot_json};
+        const floorplanHistory = {floorplan_history_json};
 
         const bedsFilter = document.getElementById("bedsFilter");
         const bathsFilter = document.getElementById("bathsFilter");
@@ -690,6 +800,19 @@ def generate_dashboard(conn):
         const snapshotTableBody = document.getElementById("snapshotTableBody");
         const emptyState = document.getElementById("emptyState");
         const resultsMeta = document.getElementById("resultsMeta");
+        const floorplanPicker = document.getElementById("floorplanPicker");
+        const floorplanChart = document.getElementById("floorplanChart");
+        const floorplanChartCaption = document.getElementById("floorplanChartCaption");
+
+        const chartColors = ["#1f5aa6", "#9f3a24", "#2f7d32", "#8b1e3f", "#7f5af0", "#c07a00"];
+        const preferredFloorplans = ["B1", "B2"];
+        const availableFloorplans = floorplanHistory.series.map((item) => item.floorplan);
+        const selectedFloorplans = new Set(
+            preferredFloorplans.filter((floorplan) => availableFloorplans.includes(floorplan)).slice(0, 2)
+        );
+        if (selectedFloorplans.size === 0) {{
+            availableFloorplans.slice(0, 2).forEach((floorplan) => selectedFloorplans.add(floorplan));
+        }}
 
         function parseNumber(value) {{
             const match = String(value || "").match(/(\d+(?:\.\d+)?)/);
@@ -724,6 +847,131 @@ def generate_dashboard(conn):
             return 1;
         }}
 
+        function formatCurrency(value) {{
+            if (value === null || value === undefined) return "n/a";
+            return `$${{Number(value).toLocaleString(undefined, {{ minimumFractionDigits: 0, maximumFractionDigits: 0 }})}}`;
+        }}
+
+        function createFloorplanButtons() {{
+            floorplanPicker.innerHTML = floorplanHistory.series.map((item) => `
+                <button class="floorplan-button${{selectedFloorplans.has(item.floorplan) ? " active" : ""}}" data-floorplan="${{item.floorplan}}" type="button">
+                    ${{item.floorplan}}
+                </button>
+            `).join("");
+
+            floorplanPicker.querySelectorAll(".floorplan-button").forEach((button) => {{
+                button.addEventListener("click", () => {{
+                    const floorplan = button.dataset.floorplan;
+                    if (selectedFloorplans.has(floorplan)) {{
+                        if (selectedFloorplans.size === 1) return;
+                        selectedFloorplans.delete(floorplan);
+                    }} else {{
+                        selectedFloorplans.add(floorplan);
+                    }}
+                    createFloorplanButtons();
+                    renderFloorplanChart();
+                }});
+            }});
+        }}
+
+        function renderFloorplanChart() {{
+            const selectedSeries = floorplanHistory.series.filter((item) => selectedFloorplans.has(item.floorplan));
+            if (!floorplanHistory.dates.length || !selectedSeries.length) {{
+                floorplanChart.innerHTML = '<div class="empty-state">No floorplan history is available yet.</div>';
+                floorplanChartCaption.textContent = "";
+                return;
+            }}
+
+            const width = 1000;
+            const height = 420;
+            const left = 74;
+            const right = 28;
+            const top = 32;
+            const bottom = 76;
+            const plotWidth = width - left - right;
+            const plotHeight = height - top - bottom;
+            const allValues = selectedSeries.flatMap((item) => item.values.filter((value) => value !== null && value !== undefined));
+
+            let minY = Math.min(...allValues);
+            let maxY = Math.max(...allValues);
+            if (minY === maxY) {{
+                minY -= 1;
+                maxY += 1;
+            }}
+            const padding = Math.max((maxY - minY) * 0.1, 1);
+            minY -= padding;
+            maxY += padding;
+
+            function xPos(index) {{
+                if (floorplanHistory.dates.length === 1) return left + plotWidth / 2;
+                return left + (plotWidth * index / (floorplanHistory.dates.length - 1));
+            }}
+
+            function yPos(value) {{
+                return top + plotHeight - ((value - minY) / (maxY - minY) * plotHeight);
+            }}
+
+            const yTicks = Array.from({{ length: 5 }}, (_, index) => {{
+                const value = minY + (maxY - minY) * index / 4;
+                return {{ value, y: yPos(value) }};
+            }});
+
+            const legend = selectedSeries.map((item, index) => {{
+                const color = chartColors[index % chartColors.length];
+                return `<g>
+                    <line x1="${{width - 190}}" y1="${{top + 14 + index * 22}}" x2="${{width - 168}}" y2="${{top + 14 + index * 22}}" stroke="${{color}}" stroke-width="3" />
+                    <text x="${{width - 158}}" y="${{top + 18 + index * 22}}" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#444">${{item.floorplan}}</text>
+                </g>`;
+            }}).join("");
+
+            const seriesMarkup = selectedSeries.map((item, index) => {{
+                const color = chartColors[index % chartColors.length];
+                const points = item.values
+                    .map((value, pointIndex) => value === null || value === undefined ? null : `${{xPos(pointIndex).toFixed(2)}},${{yPos(value).toFixed(2)}}`)
+                    .filter(Boolean)
+                    .join(" ");
+                const circles = item.values.map((value, pointIndex) => {{
+                    if (value === null || value === undefined) return "";
+                    return `<circle cx="${{xPos(pointIndex).toFixed(2)}}" cy="${{yPos(value).toFixed(2)}}" r="4.5" fill="${{color}}"><title>${{item.floorplan}} on ${{floorplanHistory.dates[pointIndex]}}: ${{formatCurrency(value)}} average shown price</title></circle>`;
+                }}).join("");
+                return `<g>
+                    <polyline fill="none" stroke="${{color}}" stroke-width="3" points="${{points}}" />
+                    ${{circles}}
+                </g>`;
+            }}).join("");
+
+            floorplanChart.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${{width}} ${{height}}" role="img" aria-label="Floorplan average price chart">
+                    <rect width="100%" height="100%" fill="#fbfaf7" />
+                    <text x="${{width / 2}}" y="24" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="20" fill="#1a1a1a">Average Shown Price By Floorplan</text>
+                    <line x1="${{left}}" y1="${{top + plotHeight}}" x2="${{left + plotWidth}}" y2="${{top + plotHeight}}" stroke="#333" stroke-width="1.5" />
+                    <line x1="${{left}}" y1="${{top}}" x2="${{left}}" y2="${{top + plotHeight}}" stroke="#333" stroke-width="1.5" />
+                    ${{yTicks.map((tick) => `
+                        <g>
+                            <line x1="${{left}}" y1="${{tick.y.toFixed(2)}}" x2="${{left + plotWidth}}" y2="${{tick.y.toFixed(2)}}" stroke="#d9d5cf" stroke-width="1" />
+                            <text x="${{left - 10}}" y="${{(tick.y + 5).toFixed(2)}}" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#444">${{Math.round(tick.value)}}</text>
+                        </g>
+                    `).join("")}}
+                    ${{floorplanHistory.dates.map((label, index) => `
+                        <g>
+                            <line x1="${{xPos(index).toFixed(2)}}" y1="${{top + plotHeight}}" x2="${{xPos(index).toFixed(2)}}" y2="${{top + plotHeight + 6}}" stroke="#333" stroke-width="1" />
+                            <text x="${{xPos(index).toFixed(2)}}" y="${{top + plotHeight + 22}}" text-anchor="end" transform="rotate(-35 ${{xPos(index).toFixed(2)}} ${{top + plotHeight + 22}})" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#444">${{label}}</text>
+                        </g>
+                    `).join("")}}
+                    ${{seriesMarkup}}
+                    ${{legend}}
+                </svg>
+            `;
+
+            const latestDateIndex = floorplanHistory.dates.length - 1;
+            const latestSummary = selectedSeries.map((item) => {{
+                const latestValue = item.values[latestDateIndex];
+                const latestUnits = item.unit_counts[latestDateIndex];
+                return `${{item.floorplan}}: ${{formatCurrency(latestValue)}} across ${{latestUnits}} unit${{latestUnits === 1 ? "" : "s"}}`;
+            }}).join(" • ");
+            floorplanChartCaption.textContent = `Selected floorplans use the average shown price for each day. Latest: ${{latestSummary}}.`;
+        }}
+
         function populateSelectOptions(select, values, labelSuffix) {{
             values.forEach((value) => {{
                 const option = document.createElement("option");
@@ -753,26 +1001,26 @@ def generate_dashboard(conn):
             rows.sort((left, right) => {{
                 switch (sortBy.value) {{
                     case "price-desc":
-                        return compareValues(right.effective_price, left.effective_price);
+                        return compareValues(right.sort_price, left.sort_price);
                     case "beds-baths": {{
                         const bedCompare = compareValues(parseNumber(left.beds), parseNumber(right.beds));
                         if (bedCompare !== 0) return bedCompare;
                         const bathCompare = compareValues(parseNumber(left.baths), parseNumber(right.baths));
                         if (bathCompare !== 0) return bathCompare;
-                        return compareValues(left.effective_price, right.effective_price);
+                        return compareValues(left.sort_price, right.sort_price);
                     }}
                     case "sqft-desc":
                         return compareValues(parseSqft(right.sqft), parseSqft(left.sqft));
                     case "availability": {{
                         const availabilityCompare = compareValues(availabilityRank(left.availability), availabilityRank(right.availability));
                         if (availabilityCompare !== 0) return availabilityCompare;
-                        return compareValues(left.effective_price, right.effective_price);
+                        return compareValues(left.sort_price, right.sort_price);
                     }}
                     case "unit":
                         return String(left.unit).localeCompare(String(right.unit), undefined, {{ numeric: true }});
                     case "price-asc":
                     default:
-                        return compareValues(left.effective_price, right.effective_price);
+                        return compareValues(left.sort_price, right.sort_price);
                 }}
             }});
 
@@ -788,14 +1036,15 @@ def generate_dashboard(conn):
                             <p class="unit-plan">Floorplan ${{row.floorplan}}</p>
                         </div>
                         <div class="unit-price">
-                            <strong>${{row.exact_price || row.displayed_bounds || row.displayed_rent || "n/a"}}</strong>
-                            <span>${{row.exact_price ? "Exact price" : "Displayed range"}}</span>
+                            <strong>${{row.display_price || row.displayed_rent || "n/a"}}</strong>
+                            <span>${{row.exact_price ? "Exact price" : "Lowest listed price"}}</span>
                         </div>
                     </div>
                     <div class="pill-row">
                         <span class="pill">${{row.beds}}</span>
                         <span class="pill">${{row.baths}}</span>
                         <span class="pill">${{row.sqft}}</span>
+                        <span class="pill">Range: ${{row.displayed_bounds || row.displayed_rent || "n/a"}}</span>
                         <span class="pill">Source: ${{row.price_source}}</span>
                     </div>
                     <span class="${{availabilityClass(row.availability)}}">${{row.availability}}</span>
@@ -809,8 +1058,8 @@ def generate_dashboard(conn):
                     <td>${{row.beds}}</td>
                     <td>${{row.baths}}</td>
                     <td>${{row.sqft}}</td>
-                    <td>${{row.exact_price || "n/a"}}</td>
-                    <td>${{row.displayed_bounds || "n/a"}}</td>
+                    <td>${{row.display_price || "n/a"}}</td>
+                    <td>${{row.displayed_bounds || row.displayed_rent || "n/a"}}</td>
                     <td>${{row.displayed_rent || "n/a"}}</td>
                     <td>${{row.availability}}</td>
                     <td>${{row.price_source}}</td>
@@ -826,6 +1075,8 @@ def generate_dashboard(conn):
             control.addEventListener("change", applyFilters);
         }});
 
+        createFloorplanButtons();
+        renderFloorplanChart();
         applyFilters();
     </script>
 </body>
