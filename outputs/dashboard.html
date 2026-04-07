@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rent Tracker Dashboard</title>
+    <style>
+        :root {
+            --bg: #f6f1e8;
+            --panel: #fffdf9;
+            --ink: #201a14;
+            --muted: #6f665d;
+            --accent: #9f3a24;
+            --accent-2: #1f5aa6;
+            --line: #ddd1c2;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Georgia, "Times New Roman", serif; background: linear-gradient(180deg, #efe6d7 0%, var(--bg) 30%, #f8f6f2 100%); color: var(--ink); }
+        .wrap { max-width: 1200px; margin: 0 auto; padding: 32px 20px 48px; }
+        .hero { display: grid; gap: 12px; margin-bottom: 28px; }
+        .eyebrow { letter-spacing: 0.16em; text-transform: uppercase; font-size: 12px; color: var(--accent); font-weight: bold; }
+        h1 { margin: 0; font-size: clamp(32px, 6vw, 56px); line-height: 0.95; }
+        .sub { color: var(--muted); max-width: 760px; font-size: 18px; line-height: 1.5; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 26px 0 36px; }
+        .card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 10px 30px rgba(32, 26, 20, 0.05); }
+        .card h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+        .card p { margin: 0; font-size: 24px; line-height: 1.2; }
+        .section { margin-top: 34px; }
+        .section h2 { margin: 0 0 14px; font-size: 26px; }
+        .chart-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        .chart-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px; box-shadow: 0 10px 30px rgba(32, 26, 20, 0.05); }
+        .chart-panel img { width: 100%; height: auto; display: block; border-radius: 12px; }
+        .chart-stage { width: 100%; min-height: 320px; border-radius: 12px; overflow: hidden; background: #fbfaf7; }
+        .links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+        .links a { color: white; background: var(--accent); text-decoration: none; padding: 10px 14px; border-radius: 999px; font-size: 14px; }
+        .links a.alt { background: var(--accent-2); }
+        .floorplan-picker { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+        .floorplan-button { border: 1px solid var(--line); border-radius: 999px; background: #f8f2ea; color: var(--ink); padding: 9px 14px; font: inherit; cursor: pointer; transition: background 160ms ease, color 160ms ease, border-color 160ms ease; }
+        .floorplan-button.active { background: var(--accent-2); color: #fff; border-color: var(--accent-2); }
+        .chart-caption { margin: 12px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+        .section-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+        .section-sub { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.5; max-width: 760px; }
+        .results-meta { color: var(--muted); font-size: 14px; }
+        .browser { display: grid; gap: 18px; }
+        .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; background: rgba(255, 253, 249, 0.88); border: 1px solid var(--line); border-radius: 18px; padding: 16px; box-shadow: 0 10px 30px rgba(32, 26, 20, 0.05); backdrop-filter: blur(12px); }
+        .control { display: grid; gap: 6px; }
+        .control span { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); font-weight: bold; }
+        .control select { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fff; color: var(--ink); font: inherit; }
+        .check { display: flex; align-items: center; gap: 10px; padding-top: 22px; color: var(--ink); font-size: 14px; }
+        .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+        .unit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+        .unit-card { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 18px; box-shadow: 0 12px 30px rgba(32, 26, 20, 0.06); display: grid; gap: 14px; }
+        .unit-top { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+        .unit-title { margin: 0; font-size: 24px; line-height: 1; }
+        .unit-plan { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+        .unit-price { text-align: right; }
+        .unit-price strong { display: block; font-size: 24px; line-height: 1; }
+        .unit-price span { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; }
+        .pill-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .pill { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; background: #f8f2ea; font-size: 13px; color: var(--ink); }
+        .availability { display: inline-flex; align-items: center; width: fit-content; border-radius: 999px; padding: 8px 12px; font-size: 13px; font-weight: bold; letter-spacing: 0.03em; }
+        .availability-now { background: #e5f3e6; color: #215b2b; }
+        .availability-later { background: #fff1da; color: #8a5800; }
+        .availability-other { background: #efe7dc; color: #65594d; }
+        table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; box-shadow: 0 10px 30px rgba(32, 26, 20, 0.05); }
+        th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; }
+        th { background: #f2ebe1; position: sticky; top: 0; }
+        .table-wrap { overflow: auto; border-radius: 18px; }
+        .empty-state { background: var(--panel); border: 1px dashed var(--line); border-radius: 18px; padding: 24px; text-align: center; color: var(--muted); }
+        .hidden { display: none; }
+        .footer { margin-top: 28px; color: var(--muted); font-size: 14px; }
+        @media (min-width: 900px) { .chart-grid { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 720px) {
+            .unit-top { grid-template-columns: 1fr; display: grid; }
+            .unit-price { text-align: left; }
+            .check { padding-top: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <header class="hero">
+            <div class="eyebrow">Local Rent Tracker</div>
+            <h1>Alta Art Tower rent dashboard</h1>
+            <p class="sub">This page is generated from your local SQLite database. Latest scrape: Monday, April 06, 2026 at 6:13 PM. It shows the latest snapshot, daily average rent trend, and availability trend using the same data your tracker saves every morning.</p>
+        </header>
+
+        <section class="cards">
+            <article class="card"><h3>Latest Scrape</h3><p>Monday, April 06, 2026 at 6:13 PM</p></article>
+<article class="card"><h3>Query Day</h3><p>2026-04-06</p></article>
+<article class="card"><h3>Units In Latest Snapshot</h3><p>25</p></article>
+<article class="card"><h3>Exact Prices Available</h3><p>4</p></article>
+<article class="card"><h3>Average Exact Price</h3><p>$3,929.75</p></article>
+<article class="card"><h3>Displayed Range</h3><p>$1,484.00 to $6,134.00</p></article>
+<article class="card"><h3>Available Now</h3><p>17</p></article>
+<article class="card"><h3>Available Later</h3><p>8</p></article>
+        </section>
+
+        <section class="section">
+            <h2>Trend Charts</h2>
+            <div class="chart-grid">
+                <div class="chart-panel">
+                    <img src="charts/average_prices_over_time.svg" alt="Average prices over time chart">
+                </div>
+                <div class="chart-panel">
+                    <img src="charts/availability_over_time.svg" alt="Availability over time chart">
+                </div>
+            </div>
+            <div class="links">
+                <a href="raw_units_history.csv">Download raw CSV</a>
+                <a class="alt" href="charts/average_prices_over_time.svg">Open average price chart</a>
+                <a class="alt" href="charts/availability_over_time.svg">Open availability chart</a>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <h2>Floorplan Price Over Time</h2>
+                    <p class="section-sub">Compare selected floorplans using each day&apos;s average shown price. If exact prices are missing, the chart falls back to the low end of the displayed range so B1 and B2 still track over time.</p>
+                </div>
+            </div>
+            <div class="chart-panel">
+                <div class="floorplan-picker" id="floorplanPicker"></div>
+                <div class="chart-stage" id="floorplanChart"></div>
+                <p class="chart-caption" id="floorplanChartCaption"></p>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <h2>Latest Snapshot</h2>
+                    <p class="section-sub">Browse the latest units as cards instead of scanning one long raw table. You can filter by bedrooms and bathrooms, change the sort order, and hide penthouses by default.</p>
+                </div>
+                <div class="results-meta" id="resultsMeta"></div>
+            </div>
+            <div class="browser">
+                <div class="controls">
+                    <label class="control">
+                        <span>Bedrooms</span>
+                        <select id="bedsFilter">
+                            <option value="all">All bedroom counts</option>
+                        </select>
+                    </label>
+                    <label class="control">
+                        <span>Bathrooms</span>
+                        <select id="bathsFilter">
+                            <option value="all">All bathroom counts</option>
+                        </select>
+                    </label>
+                    <label class="control">
+                        <span>Sort By</span>
+                        <select id="sortBy">
+                            <option value="price-asc">Lowest price first</option>
+                            <option value="price-desc">Highest price first</option>
+                            <option value="beds-baths">Bedrooms, then bathrooms</option>
+                            <option value="sqft-desc">Largest floorplan first</option>
+                            <option value="availability">Availability</option>
+                            <option value="unit">Unit number</option>
+                        </select>
+                    </label>
+                    <label class="check">
+                        <input id="excludePenthouse" type="checkbox" checked>
+                        <span>Hide penthouses</span>
+                    </label>
+                </div>
+                <div class="unit-grid" id="unitGrid"></div>
+                <div class="empty-state hidden" id="emptyState">No units match the current filters.</div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Floorplan</th>
+                            <th>Unit</th>
+                            <th>Beds</th>
+                            <th>Baths</th>
+                            <th>Sqft</th>
+                            <th>Shown Price</th>
+                            <th>Stored Range</th>
+                            <th>Displayed Rent</th>
+                            <th>Availability</th>
+                            <th>Price Source</th>
+                        </tr>
+                    </thead>
+                    <tbody id="snapshotTableBody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <p class="footer">Dashboard file: /Users/sabi/Documents/rent-tracker/outputs/dashboard.html</p>
+    </div>
+    <script>
+        const snapshotRows = [{"query_date": "2026-04-06", "floorplan": "A1", "unit": "1012", "beds": "1 Bed", "baths": "1 Bath", "sqft": "562 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,579.00", "sort_price": 1579.0, "displayed_low_price": "$1,579.00", "displayed_bounds": "$1,579.00 to $1,787.00", "displayed_rent": "$1,579 - $1,787", "availability": "Available on 04/17", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A1", "unit": "1112", "beds": "1 Bed", "baths": "1 Bath", "sqft": "562 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,579.00", "sort_price": 1579.0, "displayed_low_price": "$1,579.00", "displayed_bounds": "$1,579.00 to $1,787.00", "displayed_rent": "$1,579 - $1,787", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A2", "unit": "1305", "beds": "1 Bed", "baths": "1 Bath", "sqft": "605 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,669.00", "sort_price": 1669.0, "displayed_low_price": "$1,669.00", "displayed_bounds": "$1,669.00 to $1,810.00", "displayed_rent": "$1,669 - $1,810", "availability": "Available on 05/05", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A2", "unit": "1405", "beds": "1 Bed", "baths": "1 Bath", "sqft": "605 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,669.00", "sort_price": 1669.0, "displayed_low_price": "$1,669.00", "displayed_bounds": "$1,669.00 to $1,810.00", "displayed_rent": "$1,669 - $1,810", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A3", "unit": "1703", "beds": "1 Bed", "baths": "1 Bath", "sqft": "616 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,754.00", "sort_price": 1754.0, "displayed_low_price": "$1,754.00", "displayed_bounds": "$1,754.00 to $1,899.00", "displayed_rent": "$1,754 - $1,899", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A3", "unit": "1903", "beds": "1 Bed", "baths": "1 Bath", "sqft": "616 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,754.00", "sort_price": 1754.0, "displayed_low_price": "$1,754.00", "displayed_bounds": "$1,754.00 to $1,899.00", "displayed_rent": "$1,754 - $1,899", "availability": "Available on 04/10", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A4", "unit": "1211", "beds": "1 Bed", "baths": "1 Bath", "sqft": "695 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,814.00", "sort_price": 1814.0, "displayed_low_price": "$1,814.00", "displayed_bounds": "$1,814.00 to $1,919.00", "displayed_rent": "$1,814 - $1,919", "availability": "Available on 04/30", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A4", "unit": "1311", "beds": "1 Bed", "baths": "1 Bath", "sqft": "695 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,814.00", "sort_price": 1814.0, "displayed_low_price": "$1,814.00", "displayed_bounds": "$1,814.00 to $1,919.00", "displayed_rent": "$1,814 - $1,919", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A4A", "unit": "411", "beds": "1 Bed", "baths": "1 Bath", "sqft": "695 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,634.00", "sort_price": 1634.0, "displayed_low_price": "$1,634.00", "displayed_bounds": "$1,634.00 to $1,702.00", "displayed_rent": "$1,634 - $1,702", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A5", "unit": "1617", "beds": "1 Bed", "baths": "1 Bath", "sqft": "475 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,484.00", "sort_price": 1484.0, "displayed_low_price": "$1,484.00", "displayed_bounds": "$1,484.00 to $1,693.00", "displayed_rent": "$1,484 - $1,693", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A5", "unit": "417", "beds": "1 Bed", "baths": "1 Bath", "sqft": "475 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,484.00", "sort_price": 1484.0, "displayed_low_price": "$1,484.00", "displayed_bounds": "$1,484.00 to $1,693.00", "displayed_rent": "$1,484 - $1,693", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A6", "unit": "1810", "beds": "1 Bed", "baths": "1 Bath", "sqft": "671 Sqft", "exact_price": null, "effective_price": null, "display_price": "$2,019.00", "sort_price": 2019.0, "displayed_low_price": "$2,019.00", "displayed_bounds": "$2,019.00 to $2,103.00", "displayed_rent": "$2,019 - $2,103", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A6", "unit": "2010", "beds": "1 Bed", "baths": "1 Bath", "sqft": "671 Sqft", "exact_price": null, "effective_price": null, "display_price": "$2,019.00", "sort_price": 2019.0, "displayed_low_price": "$2,019.00", "displayed_bounds": "$2,019.00 to $2,103.00", "displayed_rent": "$2,019 - $2,103", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A7", "unit": "1214", "beds": "1 Bed", "baths": "1 Bath", "sqft": "729 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,919.00", "sort_price": 1919.0, "displayed_low_price": "$1,919.00", "displayed_bounds": "$1,919.00 to $2,238.00", "displayed_rent": "$1,919 - $2,238", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A7", "unit": "814", "beds": "1 Bed", "baths": "1 Bath", "sqft": "729 Sqft", "exact_price": null, "effective_price": null, "display_price": "$1,919.00", "sort_price": 1919.0, "displayed_low_price": "$1,919.00", "displayed_bounds": "$1,919.00 to $2,238.00", "displayed_rent": "$1,919 - $2,238", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A8", "unit": "1413", "beds": "1 Bed", "baths": "1 Bath", "sqft": "808 Sqft", "exact_price": null, "effective_price": null, "display_price": "$2,184.00", "sort_price": 2184.0, "displayed_low_price": "$2,184.00", "displayed_bounds": "$2,184.00 to $2,388.00", "displayed_rent": "$2,184 - $2,388", "availability": "Available on 04/30", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "A8", "unit": "813", "beds": "1 Bed", "baths": "1 Bath", "sqft": "808 Sqft", "exact_price": null, "effective_price": null, "display_price": "$2,184.00", "sort_price": 2184.0, "displayed_low_price": "$2,184.00", "displayed_bounds": "$2,184.00 to $2,388.00", "displayed_rent": "$2,184 - $2,388", "availability": "Available on 04/17", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "B1", "unit": "1216", "beds": "2 Beds", "baths": "2 Baths", "sqft": "1,027 Sqft", "exact_price": null, "effective_price": null, "display_price": "$2,769.00", "sort_price": 2769.0, "displayed_low_price": "$2,769.00", "displayed_bounds": "$2,769.00 to $3,145.00", "displayed_rent": "$2,769 - $3,145", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "B1", "unit": "1708", "beds": "2 Beds", "baths": "2 Baths", "sqft": "1,027 Sqft", "exact_price": null, "effective_price": null, "display_price": "$2,769.00", "sort_price": 2769.0, "displayed_low_price": "$2,769.00", "displayed_bounds": "$2,769.00 to $3,145.00", "displayed_rent": "$2,769 - $3,145", "availability": "Now", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "B2", "unit": "1115", "beds": "2 Beds", "baths": "2 Baths", "sqft": "1,114 Sqft", "exact_price": null, "effective_price": null, "display_price": "$2,859.00", "sort_price": 2859.0, "displayed_low_price": "$2,859.00", "displayed_bounds": "$2,859.00 to $2,998.00", "displayed_rent": "$2,859 - $2,998", "availability": "Available on 05/03", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "B2", "unit": "1315", "beds": "2 Beds", "baths": "2 Baths", "sqft": "1,114 Sqft", "exact_price": null, "effective_price": null, "display_price": "$2,859.00", "sort_price": 2859.0, "displayed_low_price": "$2,859.00", "displayed_bounds": "$2,859.00 to $2,998.00", "displayed_rent": "$2,859 - $2,998", "availability": "Available on 05/07", "price_source": "displayed range", "is_penthouse": false}, {"query_date": "2026-04-06", "floorplan": "PH04", "unit": "2104", "beds": "1 Bed", "baths": "1 Bath", "sqft": "715 Sqft", "exact_price": "$3,150.00", "effective_price": 3150.0, "display_price": "$3,150.00", "sort_price": 3150.0, "displayed_low_price": "$3,150.00", "displayed_bounds": "$3,150.00 to $3,150.00", "displayed_rent": "$3,150", "availability": "Now", "price_source": "rentcafe", "is_penthouse": true}, {"query_date": "2026-04-06", "floorplan": "PH05", "unit": "2105", "beds": "1 Bed", "baths": "1 Bath", "sqft": "784 Sqft", "exact_price": "$3,450.00", "effective_price": 3450.0, "display_price": "$3,450.00", "sort_price": 3450.0, "displayed_low_price": "$3,450.00", "displayed_bounds": "$3,450.00 to $3,450.00", "displayed_rent": "$3,450", "availability": "Now", "price_source": "rentcafe", "is_penthouse": true}, {"query_date": "2026-04-06", "floorplan": "PH08", "unit": "2108", "beds": "1 Bed", "baths": "1 Bath", "sqft": "684 Sqft", "exact_price": "$2,985.00", "effective_price": 2985.0, "display_price": "$2,985.00", "sort_price": 2985.0, "displayed_low_price": "$2,985.00", "displayed_bounds": "$2,985.00 to $2,985.00", "displayed_rent": "$2,985", "availability": "Now", "price_source": "rentcafe", "is_penthouse": true}, {"query_date": "2026-04-06", "floorplan": "PH09", "unit": "2109", "beds": "2 Beds", "baths": "2 Baths", "sqft": "1,329 Sqft", "exact_price": "$6,134.00", "effective_price": 6134.0, "display_price": "$6,134.00", "sort_price": 6134.0, "displayed_low_price": "$6,134.00", "displayed_bounds": "$6,134.00 to $6,134.00", "displayed_rent": "$6,134", "availability": "Now", "price_source": "rentcafe", "is_penthouse": true}];
+        const floorplanHistory = {"dates": ["2026-04-06"], "series": [{"floorplan": "A1", "values": [1579.0], "unit_counts": [2], "min_values": [1579.0], "max_values": [1579.0]}, {"floorplan": "A2", "values": [1669.0], "unit_counts": [2], "min_values": [1669.0], "max_values": [1669.0]}, {"floorplan": "A3", "values": [1754.0], "unit_counts": [2], "min_values": [1754.0], "max_values": [1754.0]}, {"floorplan": "A4", "values": [1814.0], "unit_counts": [2], "min_values": [1814.0], "max_values": [1814.0]}, {"floorplan": "A4A", "values": [1634.0], "unit_counts": [1], "min_values": [1634.0], "max_values": [1634.0]}, {"floorplan": "A5", "values": [1484.0], "unit_counts": [2], "min_values": [1484.0], "max_values": [1484.0]}, {"floorplan": "A6", "values": [2019.0], "unit_counts": [2], "min_values": [2019.0], "max_values": [2019.0]}, {"floorplan": "A7", "values": [1919.0], "unit_counts": [2], "min_values": [1919.0], "max_values": [1919.0]}, {"floorplan": "A8", "values": [2184.0], "unit_counts": [2], "min_values": [2184.0], "max_values": [2184.0]}, {"floorplan": "B1", "values": [2769.0], "unit_counts": [2], "min_values": [2769.0], "max_values": [2769.0]}, {"floorplan": "B2", "values": [2859.0], "unit_counts": [2], "min_values": [2859.0], "max_values": [2859.0]}, {"floorplan": "PH04", "values": [3150.0], "unit_counts": [1], "min_values": [3150.0], "max_values": [3150.0]}, {"floorplan": "PH05", "values": [3450.0], "unit_counts": [1], "min_values": [3450.0], "max_values": [3450.0]}, {"floorplan": "PH08", "values": [2985.0], "unit_counts": [1], "min_values": [2985.0], "max_values": [2985.0]}, {"floorplan": "PH09", "values": [6134.0], "unit_counts": [1], "min_values": [6134.0], "max_values": [6134.0]}]};
+
+        const bedsFilter = document.getElementById("bedsFilter");
+        const bathsFilter = document.getElementById("bathsFilter");
+        const sortBy = document.getElementById("sortBy");
+        const excludePenthouse = document.getElementById("excludePenthouse");
+        const unitGrid = document.getElementById("unitGrid");
+        const snapshotTableBody = document.getElementById("snapshotTableBody");
+        const emptyState = document.getElementById("emptyState");
+        const resultsMeta = document.getElementById("resultsMeta");
+        const floorplanPicker = document.getElementById("floorplanPicker");
+        const floorplanChart = document.getElementById("floorplanChart");
+        const floorplanChartCaption = document.getElementById("floorplanChartCaption");
+
+        const chartColors = ["#1f5aa6", "#9f3a24", "#2f7d32", "#8b1e3f", "#7f5af0", "#c07a00"];
+        const preferredFloorplans = ["B1", "B2"];
+        const availableFloorplans = floorplanHistory.series.map((item) => item.floorplan);
+        const selectedFloorplans = new Set(
+            preferredFloorplans.filter((floorplan) => availableFloorplans.includes(floorplan)).slice(0, 2)
+        );
+        if (selectedFloorplans.size === 0) {
+            availableFloorplans.slice(0, 2).forEach((floorplan) => selectedFloorplans.add(floorplan));
+        }
+
+        function parseNumber(value) {
+            const match = String(value || "").match(/(\d+(?:\.\d+)?)/);
+            return match ? Number(match[1]) : null;
+        }
+
+        function parseSqft(value) {
+            const normalized = String(value || "").replace(/,/g, "");
+            const match = normalized.match(/(\d+(?:\.\d+)?)/);
+            return match ? Number(match[1]) : null;
+        }
+
+        function availabilityClass(value) {
+            const normalized = String(value || "").toLowerCase();
+            if (normalized === "now") return "availability availability-now";
+            if (normalized.startsWith("available on")) return "availability availability-later";
+            return "availability availability-other";
+        }
+
+        function availabilityRank(value) {
+            const normalized = String(value || "").toLowerCase();
+            if (normalized === "now") return 0;
+            if (normalized.startsWith("available on")) return 1;
+            return 2;
+        }
+
+        function compareValues(left, right) {
+            if (left === right) return 0;
+            if (left === null || left === undefined) return 1;
+            if (right === null || right === undefined) return -1;
+            if (left < right) return -1;
+            return 1;
+        }
+
+        function formatCurrency(value) {
+            if (value === null || value === undefined) return "n/a";
+            return `$${Number(value).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+        }
+
+        function createFloorplanButtons() {
+            floorplanPicker.innerHTML = floorplanHistory.series.map((item) => `
+                <button class="floorplan-button${selectedFloorplans.has(item.floorplan) ? " active" : ""}" data-floorplan="${item.floorplan}" type="button">
+                    ${item.floorplan}
+                </button>
+            `).join("");
+
+            floorplanPicker.querySelectorAll(".floorplan-button").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const floorplan = button.dataset.floorplan;
+                    if (selectedFloorplans.has(floorplan)) {
+                        if (selectedFloorplans.size === 1) return;
+                        selectedFloorplans.delete(floorplan);
+                    } else {
+                        selectedFloorplans.add(floorplan);
+                    }
+                    createFloorplanButtons();
+                    renderFloorplanChart();
+                });
+            });
+        }
+
+        function renderFloorplanChart() {
+            const selectedSeries = floorplanHistory.series.filter((item) => selectedFloorplans.has(item.floorplan));
+            if (!floorplanHistory.dates.length || !selectedSeries.length) {
+                floorplanChart.innerHTML = '<div class="empty-state">No floorplan history is available yet.</div>';
+                floorplanChartCaption.textContent = "";
+                return;
+            }
+
+            const width = 1000;
+            const height = 420;
+            const left = 74;
+            const right = 28;
+            const top = 32;
+            const bottom = 76;
+            const plotWidth = width - left - right;
+            const plotHeight = height - top - bottom;
+            const allValues = selectedSeries.flatMap((item) => item.values.filter((value) => value !== null && value !== undefined));
+
+            let minY = Math.min(...allValues);
+            let maxY = Math.max(...allValues);
+            if (minY === maxY) {
+                minY -= 1;
+                maxY += 1;
+            }
+            const padding = Math.max((maxY - minY) * 0.1, 1);
+            minY -= padding;
+            maxY += padding;
+
+            function xPos(index) {
+                if (floorplanHistory.dates.length === 1) return left + plotWidth / 2;
+                return left + (plotWidth * index / (floorplanHistory.dates.length - 1));
+            }
+
+            function yPos(value) {
+                return top + plotHeight - ((value - minY) / (maxY - minY) * plotHeight);
+            }
+
+            const yTicks = Array.from({ length: 5 }, (_, index) => {
+                const value = minY + (maxY - minY) * index / 4;
+                return { value, y: yPos(value) };
+            });
+
+            const legend = selectedSeries.map((item, index) => {
+                const color = chartColors[index % chartColors.length];
+                return `<g>
+                    <line x1="${width - 190}" y1="${top + 14 + index * 22}" x2="${width - 168}" y2="${top + 14 + index * 22}" stroke="${color}" stroke-width="3" />
+                    <text x="${width - 158}" y="${top + 18 + index * 22}" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#444">${item.floorplan}</text>
+                </g>`;
+            }).join("");
+
+            const seriesMarkup = selectedSeries.map((item, index) => {
+                const color = chartColors[index % chartColors.length];
+                const points = item.values
+                    .map((value, pointIndex) => value === null || value === undefined ? null : `${xPos(pointIndex).toFixed(2)},${yPos(value).toFixed(2)}`)
+                    .filter(Boolean)
+                    .join(" ");
+                const circles = item.values.map((value, pointIndex) => {
+                    if (value === null || value === undefined) return "";
+                    return `<circle cx="${xPos(pointIndex).toFixed(2)}" cy="${yPos(value).toFixed(2)}" r="4.5" fill="${color}"><title>${item.floorplan} on ${floorplanHistory.dates[pointIndex]}: ${formatCurrency(value)} average shown price</title></circle>`;
+                }).join("");
+                return `<g>
+                    <polyline fill="none" stroke="${color}" stroke-width="3" points="${points}" />
+                    ${circles}
+                </g>`;
+            }).join("");
+
+            floorplanChart.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${width} ${height}" role="img" aria-label="Floorplan average price chart">
+                    <rect width="100%" height="100%" fill="#fbfaf7" />
+                    <text x="${width / 2}" y="24" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="20" fill="#1a1a1a">Average Shown Price By Floorplan</text>
+                    <line x1="${left}" y1="${top + plotHeight}" x2="${left + plotWidth}" y2="${top + plotHeight}" stroke="#333" stroke-width="1.5" />
+                    <line x1="${left}" y1="${top}" x2="${left}" y2="${top + plotHeight}" stroke="#333" stroke-width="1.5" />
+                    ${yTicks.map((tick) => `
+                        <g>
+                            <line x1="${left}" y1="${tick.y.toFixed(2)}" x2="${left + plotWidth}" y2="${tick.y.toFixed(2)}" stroke="#d9d5cf" stroke-width="1" />
+                            <text x="${left - 10}" y="${(tick.y + 5).toFixed(2)}" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#444">${Math.round(tick.value)}</text>
+                        </g>
+                    `).join("")}
+                    ${floorplanHistory.dates.map((label, index) => `
+                        <g>
+                            <line x1="${xPos(index).toFixed(2)}" y1="${top + plotHeight}" x2="${xPos(index).toFixed(2)}" y2="${top + plotHeight + 6}" stroke="#333" stroke-width="1" />
+                            <text x="${xPos(index).toFixed(2)}" y="${top + plotHeight + 22}" text-anchor="end" transform="rotate(-35 ${xPos(index).toFixed(2)} ${top + plotHeight + 22})" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#444">${label}</text>
+                        </g>
+                    `).join("")}
+                    ${seriesMarkup}
+                    ${legend}
+                </svg>
+            `;
+
+            const latestDateIndex = floorplanHistory.dates.length - 1;
+            const latestSummary = selectedSeries.map((item) => {
+                const latestValue = item.values[latestDateIndex];
+                const latestUnits = item.unit_counts[latestDateIndex];
+                return `${item.floorplan}: ${formatCurrency(latestValue)} across ${latestUnits} unit${latestUnits === 1 ? "" : "s"}`;
+            }).join(" • ");
+            floorplanChartCaption.textContent = `Selected floorplans use the average shown price for each day. Latest: ${latestSummary}.`;
+        }
+
+        function populateSelectOptions(select, values, labelSuffix) {
+            values.forEach((value) => {
+                const option = document.createElement("option");
+                option.value = String(value);
+                option.textContent = `${value} ${labelSuffix}`;
+                select.appendChild(option);
+            });
+        }
+
+        const uniqueBeds = [...new Set(snapshotRows.map((row) => parseNumber(row.beds)).filter((value) => value !== null))].sort((a, b) => a - b);
+        const uniqueBaths = [...new Set(snapshotRows.map((row) => parseNumber(row.baths)).filter((value) => value !== null))].sort((a, b) => a - b);
+
+        populateSelectOptions(bedsFilter, uniqueBeds, "bed");
+        populateSelectOptions(bathsFilter, uniqueBaths, "bath");
+
+        function applyFilters() {
+            const selectedBeds = bedsFilter.value === "all" ? null : Number(bedsFilter.value);
+            const selectedBaths = bathsFilter.value === "all" ? null : Number(bathsFilter.value);
+
+            let rows = snapshotRows.filter((row) => {
+                if (excludePenthouse.checked && row.is_penthouse) return false;
+                if (selectedBeds !== null && parseNumber(row.beds) !== selectedBeds) return false;
+                if (selectedBaths !== null && parseNumber(row.baths) !== selectedBaths) return false;
+                return true;
+            });
+
+            rows.sort((left, right) => {
+                switch (sortBy.value) {
+                    case "price-desc":
+                        return compareValues(right.sort_price, left.sort_price);
+                    case "beds-baths": {
+                        const bedCompare = compareValues(parseNumber(left.beds), parseNumber(right.beds));
+                        if (bedCompare !== 0) return bedCompare;
+                        const bathCompare = compareValues(parseNumber(left.baths), parseNumber(right.baths));
+                        if (bathCompare !== 0) return bathCompare;
+                        return compareValues(left.sort_price, right.sort_price);
+                    }
+                    case "sqft-desc":
+                        return compareValues(parseSqft(right.sqft), parseSqft(left.sqft));
+                    case "availability": {
+                        const availabilityCompare = compareValues(availabilityRank(left.availability), availabilityRank(right.availability));
+                        if (availabilityCompare !== 0) return availabilityCompare;
+                        return compareValues(left.sort_price, right.sort_price);
+                    }
+                    case "unit":
+                        return String(left.unit).localeCompare(String(right.unit), undefined, { numeric: true });
+                    case "price-asc":
+                    default:
+                        return compareValues(left.sort_price, right.sort_price);
+                }
+            });
+
+            render(rows);
+        }
+
+        function render(rows) {
+            unitGrid.innerHTML = rows.map((row) => `
+                <article class="unit-card">
+                    <div class="unit-top">
+                        <div>
+                            <h3 class="unit-title">Unit ${row.unit}</h3>
+                            <p class="unit-plan">Floorplan ${row.floorplan}</p>
+                        </div>
+                        <div class="unit-price">
+                            <strong>${row.display_price || row.displayed_rent || "n/a"}</strong>
+                            <span>${row.exact_price ? "Exact price" : "Lowest listed price"}</span>
+                        </div>
+                    </div>
+                    <div class="pill-row">
+                        <span class="pill">${row.beds}</span>
+                        <span class="pill">${row.baths}</span>
+                        <span class="pill">${row.sqft}</span>
+                        <span class="pill">Range: ${row.displayed_bounds || row.displayed_rent || "n/a"}</span>
+                        <span class="pill">Source: ${row.price_source}</span>
+                    </div>
+                    <span class="${availabilityClass(row.availability)}">${row.availability}</span>
+                </article>
+            `).join("");
+
+            snapshotTableBody.innerHTML = rows.map((row) => `
+                <tr>
+                    <td>${row.floorplan}</td>
+                    <td>${row.unit}</td>
+                    <td>${row.beds}</td>
+                    <td>${row.baths}</td>
+                    <td>${row.sqft}</td>
+                    <td>${row.display_price || "n/a"}</td>
+                    <td>${row.displayed_bounds || row.displayed_rent || "n/a"}</td>
+                    <td>${row.displayed_rent || "n/a"}</td>
+                    <td>${row.availability}</td>
+                    <td>${row.price_source}</td>
+                </tr>
+            `).join("");
+
+            const visiblePenthouses = rows.filter((row) => row.is_penthouse).length;
+            resultsMeta.textContent = `${rows.length} units shown${visiblePenthouses ? `, including ${visiblePenthouses} penthouse${visiblePenthouses === 1 ? "" : "s"}` : ""}`;
+            emptyState.classList.toggle("hidden", rows.length !== 0);
+        }
+
+        [bedsFilter, bathsFilter, sortBy, excludePenthouse].forEach((control) => {
+            control.addEventListener("change", applyFilters);
+        });
+
+        createFloorplanButtons();
+        renderFloorplanChart();
+        applyFilters();
+    </script>
+</body>
+</html>
