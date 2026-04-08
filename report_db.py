@@ -585,6 +585,53 @@ def build_floorplan_history_data(rows):
     return json.dumps({"dates": dates, "series": series})
 
 
+def build_availability_breakdown_table(rows):
+    if not rows:
+        return '<div class="empty-state">No daily availability history is available yet.</div>'
+
+    table_rows = []
+    for query_date, total_units_seen, available_now, available_later in rows:
+        total_available = (available_now or 0) + (available_later or 0)
+        availability_rate = (
+            f"{(total_available / total_units_seen) * 100:.0f}%"
+            if total_units_seen
+            else "n/a"
+        )
+        future_share = (
+            f"{(available_later / total_available) * 100:.0f}%"
+            if total_available
+            else "n/a"
+        )
+        table_rows.append(
+            "<tr>"
+            f"<td>{escape(str(query_date))}</td>"
+            f"<td>{escape(str(total_units_seen))}</td>"
+            f"<td>{escape(str(available_now))}</td>"
+            f"<td>{escape(str(available_later))}</td>"
+            f"<td>{escape(str(total_available))}</td>"
+            f"<td>{escape(availability_rate)}</td>"
+            f"<td>{escape(future_share)}</td>"
+            "</tr>"
+        )
+
+    return (
+        '<div class="table-wrap">'
+        '<table>'
+        '<thead><tr>'
+        '<th>Query Day</th>'
+        '<th>Units Seen</th>'
+        '<th>Available Now</th>'
+        '<th>Available Later</th>'
+        '<th>Total Available</th>'
+        '<th>Availability Rate</th>'
+        '<th>Later Share</th>'
+        '</tr></thead>'
+        f'<tbody>{"".join(table_rows)}</tbody>'
+        '</table>'
+        '</div>'
+    )
+
+
 def generate_dashboard(conn):
     ensure_output_dirs()
     generate_charts(conn)
@@ -645,6 +692,7 @@ def generate_dashboard(conn):
         .section-head {{ display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }}
         .section-sub {{ margin: 0; color: var(--muted); font-size: 16px; line-height: 1.5; max-width: 760px; }}
         .results-meta {{ color: var(--muted); font-size: 14px; }}
+        .breakdown-note {{ margin: 12px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }}
         .browser {{ display: grid; gap: 18px; }}
         .controls {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; background: rgba(255, 253, 249, 0.88); border: 1px solid var(--line); border-radius: 18px; padding: 16px; box-shadow: 0 10px 30px rgba(32, 26, 20, 0.05); backdrop-filter: blur(12px); }}
         .control {{ display: grid; gap: 6px; }}
@@ -708,6 +756,17 @@ def generate_dashboard(conn):
                 <a class="alt" href="charts/average_prices_over_time.svg">Open average price chart</a>
                 <a class="alt" href="charts/availability_over_time.svg">Open availability chart</a>
             </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <h2>Daily Availability Breakdown</h2>
+                    <p class="section-sub">This uses the latest saved row for each floorplan and unit on each query day, so repeated scrapes on the same day do not double-count units.</p>
+                </div>
+            </div>
+            {build_availability_breakdown_table(availability_rows)}
+            <p class="breakdown-note">Availability rate is total available units divided by total units seen that day. Later share is the portion of available units that were listed with a future move-in date.</p>
         </section>
 
         <section class="section">
